@@ -1,149 +1,102 @@
+version: '3.8'
+
 volumes:
   n8n_storage:
   postgres_storage:
-  ollama_storage:
-  qdrant_storage:
+  redis_data:
+  caddy_data:
+  caddy_config:
 
 networks:
-  demo:
-
-x-n8n: &service-n8n
-  image: n8nio/n8n:latest
-  networks: ['demo']
-  environment:
-    - DB_TYPE=postgresdb
-    - DB_POSTGRESDB_HOST=postgres
-    - DB_POSTGRESDB_USER=${POSTGRES_USER}
-    - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
-    - N8N_DIAGNOSTICS_ENABLED=false
-    - N8N_PERSONALIZATION_ENABLED=false
-    - N8N_ENCRYPTION_KEY
-    - N8N_USER_MANAGEMENT_JWT_SECRET
-    - OLLAMA_HOST=ollama:11434
-  env_file:
-    - .env
-
-x-ollama: &service-ollama
-  image: ollama/ollama:latest
-  container_name: ollama
-  networks: ['demo']
-  restart: unless-stopped
-  ports:
-    - 11434:11434
-  volumes:
-    - ollama_storage:/root/.ollama
-
-x-init-ollama: &init-ollama
-  image: ollama/ollama:latest
-  networks: ['demo']
-  container_name: ollama-pull-llama
-  volumes:
-    - ollama_storage:/root/.ollama
-  entrypoint: /bin/sh
-  environment:
-    - OLLAMA_HOST=ollama:11434
-  command:
-    - "-c"
-    - "sleep 3; ollama pull llama3.2"
+  backend:
+    internal: true
+  frontend:
+    driver: bridge
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:15-alpine
     hostname: postgres
-    networks: ['demo']
+    networks: ['backend']
     restart: unless-stopped
     environment:
-      - POSTGRES_USER
-      - POSTGRES_PASSWORD
-      - POSTGRES_DB
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    command: >-
+      postgres -c shared_buffers=128MB -c max_connections=50
     volumes:
       - postgres_storage:/var/lib/postgresql/data
+      - ./database/init/pgvector.sql:/docker-entrypoint-initdb.d/pgvector.sql:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -h localhost -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
       interval: 5s
       timeout: 5s
       retries: 10
 
-  n8n-import:
-    <<: *service-n8n
-    hostname: n8n-import
-    container_name: n8n-import
-    entrypoint: /bin/sh
-    command:
-      - "-c"
-      - "n8n import:credentials --separate --input=/demo-data/credentials && n8n import:workflow --separate --input=/demo-data/workflows"
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks: ['backend']
+    command: redis-server --requirepass ${REDIS_PASSWORD}
     volumes:
-      - ./n8n/demo-data:/demo-data
-    depends_on:
-      postgres:
-        condition: service_healthy
+      - redis_data:/data
 
   n8n:
-    <<: *service-n8n
+    image: n8nio/n8n:latest
     hostname: n8n
     container_name: n8n
     restart: unless-stopped
+    networks: ['backend','frontend']
     ports:
       - 5678:5678
+    environment:
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
+      - DB_POSTGRESDB_USER=${POSTGRES_USER}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD}
+      - QUEUE_BULL_REDIS_HOST=redis
+      - QUEUE_BULL_REDIS_PASSWORD=${REDIS_PASSWORD}
+      - N8N_USER_MANAGEMENT_JWT_SECRET=${JWT_SECRET}
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_PERSONALIZATION_ENABLED=false
     volumes:
       - n8n_storage:/home/node/.n8n
-      - ./n8n/demo-data:/demo-data
-      - ./shared:/data/shared
+      - ./n8n-import:/files
     depends_on:
       postgres:
         condition: service_healthy
-      n8n-import:
-        condition: service_completed_successfully
+      redis:
+        condition: service_started
 
-  qdrant:
-    image: qdrant/qdrant
-    hostname: qdrant
-    container_name: qdrant
-    networks: ['demo']
+  caddy:
+    image: caddy:2.7.6
     restart: unless-stopped
+    networks: ['frontend']
     ports:
-      - 6333:6333
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
     volumes:
-      - qdrant_storage:/qdrant/storage
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
 
-  ollama-cpu:
-    profiles: ["cpu"]
-    <<: *service-ollama
-
-  ollama-gpu:
-    profiles: ["gpu-nvidia"]
-    <<: *service-ollama
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-
-  ollama-gpu-amd:
-    profiles: ["gpu-amd"]
-    <<: *service-ollama
-    image: ollama/ollama:rocm
-    devices:
-      - "/dev/kfd"
-      - "/dev/dri"
-
-  ollama-pull-llama-cpu:
-    profiles: ["cpu"]
-    <<: *init-ollama
+  postgrest:
+    image: postgrest/postgrest:v11.2.2
+    restart: unless-stopped
+    networks: ['backend']
+    environment:
+      - PGRST_DB_URI=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - PGRST_DB_ANON_ROLE=anon
+      - PGRST_JWT_SECRET=${JWT_SECRET}
     depends_on:
-      - ollama-cpu
-
-  ollama-pull-llama-gpu:
-    profiles: ["gpu-nvidia"]
-    <<: *init-ollama
-    depends_on:
-      - ollama-gpu
-
-  ollama-pull-llama-gpu-amd:
-    profiles: [gpu-amd]
-    <<: *init-ollama
-    image: ollama/ollama:rocm
-    depends_on:
-     - ollama-gpu-amd
+      postgres:
+        condition: service_healthy
+    # Only start if SUPABASE_URL is not set
+    entrypoint: ["/bin/sh", "-c", "if [ -z \"$SUPABASE_URL\" ]; then exec postgrest; else sleep infinity; fi"]
