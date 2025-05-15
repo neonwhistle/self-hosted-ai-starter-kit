@@ -1,0 +1,522 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2639
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\froman\fcharset0 Times-Bold;\f1\froman\fcharset0 Times-Roman;\f2\fnil\fcharset0 LucidaGrande;
+\f3\fmodern\fcharset0 Courier-Bold;\f4\fmodern\fcharset0 Courier;\f5\fnil\fcharset0 Menlo-Regular;
+\f6\fnil\fcharset0 LucidaGrande-Bold;\f7\ftech\fcharset77 Symbol;\f8\fnil\fcharset0 AppleColorEmoji;
+}
+{\colortbl;\red255\green255\blue255;\red0\green0\blue0;}
+{\*\expandedcolortbl;;\cssrgb\c0\c0\c0;}
+{\*\listtable{\list\listtemplateid1\listhybrid{\listlevel\levelnfc23\levelnfcn23\leveljc0\leveljcn0\levelfollow0\levelstartat1\levelspace360\levelindent0{\*\levelmarker \{disc\}}{\leveltext\leveltemplateid1\'01\uc0\u8226 ;}{\levelnumbers;}\fi-360\li720\lin720 }{\listname ;}\listid1}}
+{\*\listoverridetable{\listoverride\listid1\listoverridecount0\ls1}}
+\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\deftab720
+\pard\pardeftab720\sa321\partightenfactor0
+
+\f0\b\fs48 \cf0 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Neonwhistle MVP \uc0\u8209  Complete File Pack\
+\pard\pardeftab720\sa240\partightenfactor0
+
+\f1\b0\fs24 \cf0 Below are the 
+\f0\b fully\uc0\u8209 edited
+\f1\b0  files for the lean stack (Postgres
+\f2 \uc0\u8239 
+\f1 +
+\f2 \uc0\u8239 
+\f1 pgvector, Supabase REST, n8n, Redis, Caddy). Copy each block into the matching file in your Cursor workspace.\
+\pard\pardeftab720\partightenfactor0
+\cf0 \
+\pard\pardeftab720\sa298\partightenfactor0
+
+\f0\b\fs36 \cf0 1\'a0
+\f3\fs39 docker-compose.yml
+\f0\fs36 \
+\pard\pardeftab720\partightenfactor0
+
+\f4\b0\fs26 \cf0 version: "3.9"\
+\
+services:\
+  postgres:\
+    image: postgres:15-alpine\
+    restart: unless-stopped\
+    env_file: .env\
+    volumes:\
+      - postgres_data:/var/lib/postgresql/data\
+      - ./database/init:/docker-entrypoint-initdb.d  # pgvector bootstrap\
+    command: >-\
+      postgres -c shared_buffers=128MB -c max_connections=50\
+    networks: [backend]\
+\
+  # Supabase REST layer (PostgREST). Swap for managed Supabase if you set SUPABASE_URL\
+  postgrest:\
+    image: postgrest/postgrest:latest\
+    restart: unless-stopped\
+    environment:\
+      PGRST_DB_URI: postgres://$\{POSTGRES_USER\}:$\{POSTGRES_PASSWORD\}@postgres:5432/$\{POSTGRES_DB\}\
+      PGRST_DB_SCHEMA: public\
+      PGRST_DB_ANON_ROLE: anon\
+      PGRST_JWT_SECRET: $\{JWT_SECRET\}\
+    depends_on: [postgres]\
+    networks: [backend, frontend]\
+\
+  n8n:\
+    image: docker.n8n.io/n8nio/n8n:1.44.0\
+    restart: unless-stopped\
+    env_file: .env\
+    environment:\
+      DB_TYPE: postgresdb\
+      DB_POSTGRESDB_HOST: postgres\
+      DB_POSTGRESDB_PORT: 5432\
+      DB_POSTGRESDB_DATABASE: $\{POSTGRES_DB\}\
+      DB_POSTGRESDB_USER: $\{POSTGRES_USER\}\
+      DB_POSTGRESDB_PASSWORD: $\{POSTGRES_PASSWORD\}\
+      N8N_ENCRYPTION_KEY: $\{N8N_ENCRYPTION_KEY\}\
+      QUEUE_BULL_REDIS_HOST: redis\
+      QUEUE_BULL_REDIS_PASSWORD: $\{REDIS_PASSWORD\}\
+      GENERIC_TIMEZONE: America/Los_Angeles\
+    volumes:\
+      - n8n_data:/home/node/.n8n\
+    depends_on: [postgres, redis]\
+    networks: [backend, frontend]\
+\
+  redis:\
+    image: redis:7-alpine\
+    restart: unless-stopped\
+    command: redis-server --requirepass $\{REDIS_PASSWORD\}\
+    volumes:\
+      - redis_data:/data\
+    networks: [backend]\
+\
+  caddy:\
+    image: caddy:2-alpine\
+    restart: unless-stopped\
+    ports:\
+      - "80:80"\
+      - "443:443"\
+    volumes:\
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile\
+      - caddy_data:/data\
+    depends_on: [n8n, postgrest]\
+    networks: [frontend]\
+\
+networks:\
+  backend:\
+    internal: true\
+  frontend: \{\}\
+\
+volumes:\
+  postgres_data:\
+  n8n_data:\
+  redis_data:\
+  caddy_data:\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 \
+\pard\pardeftab720\sa298\partightenfactor0
+
+\f0\b\fs36 \cf0 2\'a0
+\f3\fs39 .env.example
+\f0\fs36 \
+\pard\pardeftab720\partightenfactor0
+
+\f4\b0\fs26 \cf0 # 
+\f5 \uc0\u9617 \u9618 \u9619 
+\f4  Neonwhistle MVP \'96 Environment 
+\f5 \uc0\u9619 \u9618 \u9617 
+\f4 \
+\
+# ---------- Core DB ----------\
+POSTGRES_USER=postgres\
+POSTGRES_PASSWORD=supersecurepass\
+POSTGRES_DB=neonwhistle\
+\
+# ---------- JWT / Auth ----------\
+JWT_SECRET=changeme_jwt_secret_32chars\
+\
+# ---------- Redis ----------\
+REDIS_PASSWORD=redispass\
+\
+# ---------- n8n ----------\
+N8N_ENCRYPTION_KEY=32characterlongencryptionkey!\
+N8N_BASIC_AUTH_ACTIVE=true\
+N8N_BASIC_AUTH_USER=admin\
+N8N_BASIC_AUTH_PASSWORD=anothersecurepass\
+WEBHOOK_URL=https://automation.neonwhistle.com/\
+\
+# ---------- Supabase (if using managed) ----------\
+SUPABASE_URL=\
+SUPABASE_ANON_KEY=\
+\
+# ---------- External APIs ----------\
+OPENAI_API_KEY=\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 \
+\pard\pardeftab720\sa298\partightenfactor0
+
+\f0\b\fs36 \cf0 3\'a0
+\f3\fs39 database/init/pgvector.sql
+\f0\fs36 \
+\pard\pardeftab720\partightenfactor0
+
+\f4\b0\fs26 \cf0 -- Enables vector similarity search inside Postgres on first boot\
+CREATE EXTENSION IF NOT EXISTS vector;\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 \
+\pard\pardeftab720\sa298\partightenfactor0
+
+\f0\b\fs36 \cf0 4\'a0
+\f3\fs39 caddy/Caddyfile
+\f0\fs36 \
+\pard\pardeftab720\partightenfactor0
+
+\f4\b0\fs26 \cf0 # HTTPS & HSTS are automatic; adjust domains as needed\
+\
+automation.neonwhistle.com \{\
+    reverse_proxy n8n:5678\
+    encode zstd gzip\
+    basicauth * \{\
+        \{env.N8N_BASIC_AUTH_USER\} \{env.N8N_BASIC_AUTH_PASSWORD\}\
+    \}\
+    header Strict-Transport-Security max-age=31536000;\
+\}\
+\
+api.neonwhistle.com \{\
+    reverse_proxy postgrest:3000\
+    encode zstd gzip\
+    header Strict-Transport-Security max-age=31536000;\
+\}\
+\
+neonwhistle.com www.neonwhistle.com \{\
+    root * /srv/web   # mount your built Next.js/static site here\
+    file_server\
+    encode zstd gzip\
+    header Strict-Transport-Security max-age=31536000;\
+\}\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 \
+\pard\pardeftab720\sa298\partightenfactor0
+
+\f0\b\fs36 \cf0 5\'a0
+\f3\fs39 README.md
+\f0\fs36 \
+\pard\pardeftab720\partightenfactor0
+
+\f4\b0\fs26 \cf0 # Neonwhistle Automation\'a0&\'a0AI \'96 Lean\'a0MVP Stack\
+\
+A five\uc0\u8209 container setup that delivers:\
+\
+| Service | Purpose | URL (example) |\
+|---------|---------|---------------|\
+| **Caddy 2** | TLS & reverse proxy | *edge* |\
+| **n8n 1.44** | No\uc0\u8209 code automations & queue mode | `https://automation.neonwhistle.com` |\
+| **Postgres\'a015 + pgvector** | Relational + vector DB | internal only |\
+| **PostgREST** | Supabase\uc0\u8209 style REST & GraphQL over Postgres | `https://api.neonwhistle.com` |\
+| **Redis\'a07** | Queue + cache for n8n | internal only |\
+\
+## Quick\'a0start\
+```bash\
+# clone and copy .env from template\
+cp .env.example .env\
+# tweak secrets \'85\
+\
+# build and run\
+docker compose pull\
+docker compose up -d\
+\
+# first\uc0\u8209 time: import pgvector extension just in case\
+# (container will do this automatically via init script)\
+\
+# import existing n8n assets\
+docker compose run --rm n8n n8n import:credentials --separate --input=/files/credentials.json\
+docker compose run --rm n8n n8n import:workflow --input=/files/workflows.json --active=true\
+\pard\pardeftab720\sa298\partightenfactor0
+
+\f0\b\fs36 \cf0 Architecture\
+\pard\pardeftab720\partightenfactor0
+
+\f5\b0\fs26 \cf0 \uc0\u9484 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9488 
+\f4       HTTPS       
+\f5 \uc0\u9484 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9488 
+\f4 \
+
+\f5 \uc0\u9474 
+\f4    Front\uc0\u8209 end   
+\f5 \uc0\u9500 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9658 \u9474 
+\f4    Caddy 2 (TLS / routing)       
+\f5 \uc0\u9474 
+\f4 \
+
+\f5 \uc0\u9492 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9496 
+\f4                  
+\f5 \uc0\u9500 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9516 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9508 
+\f4 \
+                                  
+\f5 \uc0\u9474 
+\f4            
+\f5 \uc0\u9474 
+\f4                       
+\f5 \uc0\u9474 
+\f4 \
+                                  
+\f5 \uc0\u9660 
+\f4            
+\f5 \uc0\u9660 
+\f4                       
+\f5 \uc0\u9660 
+\f4 \
+                           n8n (5678)   PostgREST (3000)       Static site\
+                                  
+\f5 \uc0\u9474 
+\f4            
+\f5 \uc0\u9474 
+\f4 \
+                   Redis (cache/queue)      Postgres + pgvector (5432)\
+\pard\pardeftab720\sa298\partightenfactor0
+
+\f0\b\fs36 \cf0 Upgrading later\
+\pard\tx220\tx720\pardeftab720\li720\fi-720\sa240\partightenfactor0
+\ls1\ilvl0
+\fs24 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 >5
+\f6 \uc0\u8239 
+\f0 M vectors
+\f1\b0  
+\f7 \uc0\u8594 
+\f1  bolt on Qdrant.\
+\ls1\ilvl0
+\f0\b \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Offline embeddings
+\f1\b0  
+\f7 \uc0\u8594 
+\f1  add 
+\f4\fs26 transformer
+\f1\fs24  container.\
+\ls1\ilvl0
+\f0\b \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Spreadsheet UI
+\f1\b0  
+\f7 \uc0\u8594 
+\f1  add Baserow; it re\uc0\u8209 uses the same Postgres.
+\f4\fs26 \
+\pard\pardeftab720\partightenfactor0
+\cf0 \strokec2 ---\
+## 6\'a0`docs/SYSTEM_ARCHITECTURE.md`\
+```markdown\
+# System Architecture \'96 Neonwhistle MVP\
+\
+![diagram](../assets/nw-mvp-architecture.png)\
+\
+## Components\
+1. **Caddy\'a02** \'96 TLS, HSTS, reverse proxy 80/443 
+\f5 \uc0\u8594 
+\f4  internal services.\
+2. **n8n** \'96 Workflow engine in queue mode, talks to Redis & Postgres.\
+3. **Postgres\uc0\u8239 +\u8239 pgvector** \'96 Single source for relational and semantic data.\
+4. **PostgREST** \'96 REST/GraphQL facade + JWT auth keys.\
+5. **Redis** \'96 Job queues & AI\uc0\u8209 response cache.\
+\
+All other services (Qdrant, Transformer, Baserow, etc.) are out until scale demands them.\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 \
+\pard\pardeftab720\sa298\partightenfactor0
+
+\f0\b\fs36 \cf0 7\'a0
+\f3\fs39 docs/PROJECT_STRUCTURE.md
+\f0\fs36 \
+\pard\pardeftab720\partightenfactor0
+
+\f4\b0\fs26 \cf0 \
+/root/neonwhistle-stack/\
+
+\f5 \uc0\u9500 \u9472 \u9472 
+\f4  docker-compose.yml      # Lean five\uc0\u8209 service stack\
+
+\f5 \uc0\u9500 \u9472 \u9472 
+\f4  .env.example            # Secrets template\
+
+\f5 \uc0\u9500 \u9472 \u9472 
+\f4  database/\
+
+\f5 \uc0\u9474 
+\f4    
+\f5 \uc0\u9492 \u9472 \u9472 
+\f4  init/pgvector.sql   # one\uc0\u8209 line extension bootstrap\
+
+\f5 \uc0\u9500 \u9472 \u9472 
+\f4  caddy/\
+
+\f5 \uc0\u9474 
+\f4    
+\f5 \uc0\u9492 \u9472 \u9472 
+\f4  Caddyfile           # proxy & TLS config\
+
+\f5 \uc0\u9500 \u9472 \u9472 
+\f4  scripts/\
+
+\f5 \uc0\u9474 
+\f4    
+\f5 \uc0\u9500 \u9472 \u9472 
+\f4  backup.sh           # DB + n8n volume backup\
+
+\f5 \uc0\u9474 
+\f4    
+\f5 \uc0\u9492 \u9472 \u9472 
+\f4  monitor.sh          # Health\uc0\u8209 check quick script\
+
+\f5 \uc0\u9492 \u9472 \u9472 
+\f4  docs/                   # System docs (this folder)\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 \
+\pard\pardeftab720\sa298\partightenfactor0
+
+\f0\b\fs36 \cf0 8\'a0
+\f3\fs39 docs/QUICKSTART.md
+\f0\fs36 \
+\pard\pardeftab720\partightenfactor0
+
+\f4\b0\fs26 \cf0 # Quick\'a0Start Guide \'96 Neonwhistle MVP\
+\
+1. **Clone:** `git clone \'85 && cd neonwhistle-stack`\
+2. **Secrets:** copy `.env.example` 
+\f5 \uc0\u8594 
+\f4  `.env`, set real values.\
+3. **Run:** `docker compose up -d`\
+4. **Import n8n:** see README commands.\
+5. **Visit** `https://automation.neonwhistle.com` (basic\uc0\u8209 auth protected).\
+6. **Add data:** POST a row via PostgREST `/jobs` endpoint.\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 \
+\pard\pardeftab720\sa298\partightenfactor0
+
+\f0\b\fs36 \cf0 9\'a0
+\f3\fs39 docs/DEBUG_GUIDE.md
+\f0\fs36 \
+\pard\pardeftab720\partightenfactor0
+
+\f4\b0\fs26 \cf0 # Debug Guide\
+\
+## Containers up?\
+```bash\
+docker compose ps\
+\pard\pardeftab720\sa298\partightenfactor0
+
+\f0\b\fs36 \cf0 Postgres & pgvector present?\
+\pard\pardeftab720\partightenfactor0
+
+\f4\b0\fs26 \cf0 SELECT extname FROM pg_extension;\
+-- expect: vector, plpgsql \'85\
+\pard\pardeftab720\sa298\partightenfactor0
+
+\f0\b\fs36 \cf0 n8n healthcheck\
+\pard\pardeftab720\partightenfactor0
+
+\f4\b0\fs26 \cf0 curl -u $N8N_BASIC_AUTH_USER:$N8N_BASIC_AUTH_PASSWORD \\\
+  https://automation.neonwhistle.com/healthz\
+\pard\pardeftab720\sa298\partightenfactor0
+
+\f0\b\fs36 \cf0 PostgREST running?\
+\pard\pardeftab720\partightenfactor0
+
+\f4\b0\fs26 \cf0 curl https://api.neonwhistle.com/\
+\pard\pardeftab720\sa240\partightenfactor0
+
+\f1\fs24 \cf0 Expect JSON 
+\f4\fs26 \{ "db_version": \'85 \}
+\f1\fs24 .
+\f4\fs26 \
+\pard\pardeftab720\partightenfactor0
+\cf0 ---\
+## 10\'a0`docs/AGENT_SETUP.md`\
+```markdown\
+# Agent Setup \'96 Neonwhistle\
+\
+| Tool | Endpoint | Note |\
+|------|----------|------|\
+| **n8n webhook** | `https://automation.neonwhistle.com/webhook/\{id\}` | Include a JWT from Supabase in `Authorization: Bearer` header. |\
+| **Vector search** | use SQL: `SELECT * FROM embeddings ORDER BY embedding <=> $1 LIMIT 5;` | pgvector similarity. |\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 \
+\pard\pardeftab720\sa298\partightenfactor0
+
+\f0\b\fs36 \cf0 11\'a0
+\f3\fs39 docs/INTEGRATIONS.md
+\f0\fs36 \
+\pard\pardeftab720\partightenfactor0
+
+\f4\b0\fs26 \cf0 ## Example: upsert a job via PostgREST\
+```bash\
+curl -X POST https://api.neonwhistle.com/jobs \\\
+  -H "Content-Type: application/json" \\\
+  -H "apikey: $SUPABASE_ANON_KEY" \\\
+  -d '\{"client_id": 42, "description": "Exterior repaint"\}'\
+\
+---\
+## 12\'a0`scripts/backup.sh`\
+```bash\
+#!/usr/bin/env bash\
+set -euo pipefail\
+TS=$(date +"%Y-%m-%d_%H-%M-%S")\
+BACKUP_DIR=/backups/$TS\
+mkdir -p "$BACKUP_DIR"\
+\
+echo "
+\f5 \uc0\u8594 
+\f4  Dumping Postgres\'85"\
+docker compose exec -T postgres pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > "$BACKUP_DIR/db.sql"\
+\
+echo "
+\f5 \uc0\u8594 
+\f4  Copying n8n data\'85"\
+docker compose cp n8n:/home/node/.n8n "$BACKUP_DIR/n8n_data"\
+\
+echo "
+\f5 \uc0\u10003 
+\f4  Backup complete: $BACKUP_DIR"\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 \
+\pard\pardeftab720\sa298\partightenfactor0
+
+\f0\b\fs36 \cf0 13\'a0
+\f3\fs39 scripts/monitor.sh
+\f0\fs36 \
+\pard\pardeftab720\partightenfactor0
+
+\f4\b0\fs26 \cf0 #!/usr/bin/env bash\
+SERVICES=(postgres n8n redis postgrest caddy)\
+for svc in "$\{SERVICES[@]\}"; do\
+  if ! docker compose exec -T "$svc" true 2>/dev/null; then\
+    echo "
+\f8 \uc0\u10060 
+\f4  $svc is not responding" | tee -a /var/log/nw-monitor.log\
+  fi\
+done\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 \
+\pard\pardeftab720\sa298\partightenfactor0
+
+\f0\b\fs36 \cf0 14\'a0
+\f3\fs39 docs/CHANGELOG.md
+\f0\fs36  (append)\
+\pard\pardeftab720\partightenfactor0
+
+\f4\b0\fs26 \cf0 ## [2.1.0] \'96 2025\uc0\u8209 05\u8209 13\
+### Changed\
+* **Replaced** Qdrant + Transformer + Baserow with Postgres pgvector and PostgREST.\
+* **Removed** Ollama, Minio, Weaviate, Directus from default stack.\
+* **Added** bootstrap SQL for pgvector extension.\
+* **Updated** `docker-compose.yml`, all docs, and scripts to reflect 5\uc0\u8209 service MVP.\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 \
+\pard\pardeftab720\sa240\partightenfactor0
+
+\f0\b \cf0 Copy each block into the corresponding file in your Cursor workspace, commit, and push
+\f1\b0 . The repo will now represent the streamlined Neonwhistle stack.\
+}

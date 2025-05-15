@@ -1,0 +1,29 @@
+# HTTPS & HSTS are automatic; adjust domains as needed
+
+automation.neonwhistle.com {
+    reverse_proxy n8n:5678
+    encode zstd gzip
+    basicauth * {
+        {env.N8N_BASIC_AUTH_USER} {env.N8N_BASIC_AUTH_PASSWORD}
+    }
+    header Strict-Transport-Security max-age=31536000;
+}
+
+api.neonwhistle.com {
+    reverse_proxy postgrest:3000
+    encode zstd gzip
+    header Strict-Transport-Security max-age=31536000;
+}
+
+site.neonwhistle.com {
+    reverse_proxy nextjs:3000
+    encode zstd gzip
+    header Strict-Transport-Security max-age=31536000;
+}
+
+# neonwhistle.com www.neonwhistle.com {
+#     root * /srv/web   # mount your built Next.js/static site here
+#     file_server
+#     encode zstd gzip
+#     header Strict-Transport-Security max-age=31536000;
+# } 
